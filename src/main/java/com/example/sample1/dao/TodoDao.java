@@ -1,6 +1,10 @@
 package com.example.sample1.dao;
 
 import com.example.sample1.domain.Todo;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Select;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -9,49 +13,42 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
-@Component
-public class TodoDao {
+@Mapper
+public interface TodoDao {
 
-    @Autowired
-    private DataSource dataSource;
+    // LEFT JOIN으로 todo의 모든 리스트를 반환
+    // todoFile에는 todoId가 가지고 있는 파일의 개수를 담고 있음
+    // LEFT JOIN을 했으므로, todoFile에 포함되지 않은 todoId는 null
+    @Select("""
+        SELECT t.id, t.todo, t.inserted, COUNT(f.todoId) numOfFiles
+        FROM todo t LEFT JOIN todoFile f ON t.id = f.todoId
+        GROUP BY t.id
+        ORDER BY t.id DESC
+        """)
+    public List<Todo> list();
 
-    public List<Todo> list() throws Exception {
-        String sql = "SELECT * FROM todo ORDER BY id DESC";
-        Connection connection = dataSource.getConnection();
-        Statement statement = connection.createStatement();
-        ResultSet resultSet = statement.executeQuery(sql);
+    // Submit된 todo 필드를 insert
+    @Insert("""
+            INSERT INTO todo (todo)
+            VALUE (#{todo})  
+            """)
+    // useGeneratedKeys = true : 삽입된 레코드의 자동 생성 키를 반환할 것임을 지시
+    // keyProperty = "id" : 반환된 자동 생성 키를 Todo 객체의 id 필드에 설정하는 지시
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    public int insert(Todo todo);
 
-        List<Todo> list = new ArrayList<>();
-        try (connection; statement; resultSet) {
-            while (resultSet.next()) {
-                Todo todo = new Todo();
-                todo.setId(resultSet.getInt("id"));
-                todo.setTodo(resultSet.getString("todo"));
-                todo.setInserted(resultSet.getTimestamp("inserted").toLocalDateTime());
+    // submit된 todoId와 파일 명을 insert
+    @Insert("""
+        INSERT INTO todoFile (todoId, name)
+        VALUES (#{todo.id}, #{fileName})
+        """)
+    int insertFile(Todo todo, String fileName);
 
-                list.add(todo);
-            }
-
-        }
-
-        return list;
-    }
-
-    public boolean insert(Todo todo) throws SQLException {
-        String sql = """
-                INSERT INTO todo (todo)
-                VALUE (?)            
-                """;
-
-        Connection connection = dataSource.getConnection();
-        PreparedStatement statement = connection.prepareStatement(sql);
-
-        try (connection; statement) {
-            statement.setString(1, todo.getTodo());
-            int rows = statement.executeUpdate();
-
-            return rows == 1;
-        }
-
-    }
+    // todoFile에 todoId가 가진 파일명 반환
+    @Select("""
+        SELECT name
+        FROM todoFile
+        WHERE todoId = #{todoId}
+        """)
+    List<String> selectFilesByTodoId(Integer todoId);
 }
